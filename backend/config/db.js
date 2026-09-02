@@ -1,5 +1,4 @@
 const mongoose = require('mongoose');
-const { MongoMemoryServer } = require('mongodb-memory-server');
 
 async function connectDB() {
   let uri = process.env.MONGO_URI || process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/gtext';
@@ -24,6 +23,7 @@ async function connectDB() {
       throw error;
     }
 
+    const { MongoMemoryServer } = require('mongodb-memory-server');
     const memoryServer = await MongoMemoryServer.create();
     const memoryUri = memoryServer.getUri();
     process.env.MONGO_URI = memoryUri;
