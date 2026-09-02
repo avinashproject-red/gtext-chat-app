@@ -14,9 +14,9 @@ const getApiUrl = () => {
     if (/^(192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[0-1])\.\d+\.\d+)$/.test(host)) {
       return `http://${host}:5000`;
     }
-    return 'https://gtext-backend-gb49.onrender.com';
+    return 'https://gtext-backend-3r0k.onrender.com';
   }
-  return 'https://gtext-backend-gb49.onrender.com';
+  return 'https://gtext-backend-3r0k.onrender.com';
 };
 
 export const API_URL = getApiUrl();
