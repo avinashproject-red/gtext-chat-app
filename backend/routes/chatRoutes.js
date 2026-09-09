@@ -91,6 +91,9 @@ router.post('/direct', auth, async (req, res) => {
       wrappedKeys: wrappedKeys || {},
     });
     conversation = await conversation.populate('participants', '-password');
+    const serialized = serializeConversation(conversation, req.user._id);
+    req.app.get('io').to(`user:${req.user._id}`).emit('conversation:new', serialized);
+    req.app.get('io').to(`user:${other._id}`).emit('conversation:new', serialized);
   } else if (wrappedKeys) {
     const normalizedExisting = normalizeWrappedKeys(conversation.wrappedKeys);
     const currentKey = normalizedExisting[String(req.user._id)] || conversation.wrappedKeys?.get?.(String(req.user._id));
@@ -133,7 +136,12 @@ router.post('/groups', auth, async (req, res) => {
   });
 
   await conversation.populate('participants', '-password');
-  res.status(201).json({ conversation: serializeConversation(conversation, req.user._id) });
+  const serialized = serializeConversation(conversation, req.user._id);
+  req.app.get('io').to(`conversation:${conversation._id}`).emit('conversation:new', serialized);
+  for (const member of conversation.participants) {
+    req.app.get('io').to(`user:${member._id || member}`).emit('conversation:new', serialized);
+  }
+  res.status(201).json({ conversation: serialized });
 });
 
 router.get('/conversations/:id', auth, async (req, res) => {

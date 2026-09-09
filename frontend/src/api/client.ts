@@ -42,11 +42,12 @@ export const authApi = {
     publicKey?: string;
     protectedKey?: string;
     avatar?: string;
+    about?: string;
   }) => api.post<AuthResponse>('/auth/register', payload).then((r) => r.data),
   login: (payload: { email: string; password: string; publicKey?: string; protectedKey?: string }) =>
     api.post<AuthResponse>('/auth/login', payload).then((r) => r.data),
   me: () => api.get<{ user: User }>('/auth/me').then((r) => r.data.user),
-  updateProfile: (payload: { username?: string; avatar?: string; publicKey?: string; protectedKey?: string }) =>
+  updateProfile: (payload: { username?: string; avatar?: string; about?: string; publicKey?: string; protectedKey?: string }) =>
     api.put<{ user: User }>('/auth/profile', payload).then((r) => r.data.user),
 };
 

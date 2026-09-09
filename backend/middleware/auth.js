@@ -41,23 +41,15 @@ function signToken(user) {
 }
 
 function publicUser(user) {
-  const privateKey = user.encryptedPrivateKey ? (() => {
-    try {
-      const { decryptPrivateKey } = require('../utils/keyStore');
-      return decryptPrivateKey(user.encryptedPrivateKey) || undefined;
-    } catch {
-      return undefined;
-    }
-  })() : undefined;
-
   return {
     id: user._id,
     username: user.username,
     email: user.email,
     avatar: user.avatar || '',
+    about: user.about || '',
     role: user.role,
     publicKey: user.publicKey || '',
-    privateKey,
+    protectedKey: user.encryptedPrivateKey || '',
     lastSeen: user.lastSeen,
     isOnline: user.isOnline,
     isBlocked: user.isBlocked,

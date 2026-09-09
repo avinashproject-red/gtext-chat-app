@@ -45,6 +45,8 @@ const io = new Server(server, {
   },
 });
 
+app.set('io', io);
+
 app.use(
   cors({
     origin: (origin, callback) => callback(null, isOriginAllowed(origin)),

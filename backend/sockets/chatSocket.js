@@ -164,24 +164,6 @@ function registerChatSocket(io) {
       });
     });
 
-    socket.on('typing:start', ({ conversationId }) => {
-      socket.to(conversationRoom(conversationId)).emit('typing', {
-        conversationId,
-        userId,
-        username: socket.user.username,
-        typing: true,
-      });
-    });
-
-    socket.on('typing:stop', ({ conversationId }) => {
-      socket.to(conversationRoom(conversationId)).emit('typing', {
-        conversationId,
-        userId,
-        username: socket.user.username,
-        typing: false,
-      });
-    });
-
     socket.on('disconnect', async () => {
       const remaining = onlineUsers.get(userId);
       if (remaining) {

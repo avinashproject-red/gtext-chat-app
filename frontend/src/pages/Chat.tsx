@@ -24,6 +24,15 @@ function otherParticipant(conversation: Conversation, userId: string): User | un
   return conversation.participants.find((p) => p.id !== userId);
 }
 
+function fileToDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+}
+
 function senderId(sender: ChatMessage['sender']): string {
   return typeof sender === 'string' ? sender : sender.id || (sender as { _id?: string })._id || '';
 }
@@ -61,10 +70,39 @@ export function shouldAutoRepairDirectChatOnReload(
   return false;
 }
 
+export function mergeConversationIntoList(existing: Conversation[], incoming: Conversation): Conversation[] {
+  const list = existing.filter((c) => conversationId(c) !== conversationId(incoming));
+  return [
+    { ...incoming, id: conversationId(incoming) },
+    ...list,
+  ];
+}
+
 export default function Chat() {
   const { user, logout, updateUser } = useAuth();
   const { theme, highContrast, largeText, toggleTheme, toggleHighContrast, toggleLargeText } = useTheme();
   useNotificationsEnabled();
+
+  const cycleVisualMode = () => {
+    if (largeText) {
+      toggleLargeText();
+      if (highContrast) {
+        toggleHighContrast();
+      }
+      return;
+    }
+    if (highContrast) {
+      toggleHighContrast();
+      toggleLargeText();
+      return;
+    }
+    if (theme === 'dark') {
+      toggleTheme();
+      return;
+    }
+    toggleTheme();
+    toggleHighContrast();
+  };
 
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeId, setActiveId] = useState<string>('');
@@ -75,7 +113,8 @@ export default function Chat() {
   const [showProfile, setShowProfile] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [username, setUsername] = useState(user?.username || '');
-  const [typing, setTyping] = useState<Record<string, string[]>>({});
+  const [avatar, setAvatar] = useState(user?.avatar || '');
+  const [about, setAbout] = useState(user?.about || '');
   const [keys, setKeys] = useState<Record<string, CryptoKey>>({});
   const [privateKey, setPrivateKey] = useState<CryptoKey | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -115,6 +154,12 @@ export default function Chat() {
         socket.emit('conversation:join', activeIdRef.current);
       }
       loadConversations().catch(() => undefined);
+    });
+
+    socket.on('conversation:new', (incoming: Conversation) => {
+      const cid = conversationId(incoming);
+      setConversations((prev) => mergeConversationIntoList(prev, { ...incoming, id: cid }));
+      setActiveId((current) => current || cid);
     });
 
     socket.on('disconnect', () => {
@@ -184,26 +229,6 @@ export default function Chat() {
       }
     );
 
-    socket.on(
-      'typing',
-      ({
-        conversationId: cid,
-        username: name,
-        typing: isTyping,
-      }: {
-        conversationId: string;
-        username: string;
-        typing: boolean;
-      }) => {
-        setTyping((prev) => {
-          const current = new Set(prev[cid] || []);
-          if (isTyping) current.add(name);
-          else current.delete(name);
-          return { ...prev, [cid]: Array.from(current) };
-        });
-      }
-    );
-
     socket.on('notification:new', ({ title, body }: { title: string; body: string }) => {
       notify(title, body);
     });
@@ -263,6 +288,17 @@ export default function Chat() {
         }
       }
       if (hasDirectChatPlaceholderState(wrapped, history)) {
+        if (current.type === 'direct') {
+          const other = current.participants.find((p) => p.id !== user.id);
+          if (other) {
+            try {
+              await repairDirectConversation(other);
+              return;
+            } catch {
+              setMessages([]);
+            }
+          }
+        }
         setMessages([]);
         return;
       }
@@ -346,18 +382,22 @@ export default function Chat() {
     const conversation = await chatApi.startDirect(person.id, wrappedKeys);
     const cid = conversationId(conversation);
     setKeys((prev) => ({ ...prev, [cid]: aesKey }));
-    setConversations((prev) => [conversation, ...prev.filter((c) => conversationId(c) !== cid)]);
-    setActiveId(cid);
-    setMessages([]);
-    setSearch('');
+      setConversations((prev) => mergeConversationIntoList(prev, conversation));
     setPeople([]);
   };
 
   const saveProfile = async () => {
     if (!user) return;
-    const updated = await authApi.updateProfile({ username });
+    const updated = await authApi.updateProfile({ username, avatar, about });
     updateUser(updated);
     setShowProfile(false);
+  };
+
+  const openProfile = () => {
+    setUsername(user?.username || '');
+    setAvatar(user?.avatar || '');
+    setAbout(user?.about || '');
+    setShowProfile(true);
   };
 
   if (!user) return null;
@@ -397,7 +437,7 @@ export default function Chat() {
         ) : null}
         <div className="row">
           <button type="button" onClick={() => setShowGroup(true)}>New group</button>
-          <button type="button" onClick={() => setShowProfile(true)}>Profile</button>
+          <button type="button" onClick={openProfile}>Profile</button>
         </div>
         <nav className="conversation-list">
           {conversations.map((conversation) => {
@@ -430,14 +470,8 @@ export default function Chat() {
             </button>
             {settingsOpen ? (
               <div className="settings-dropdown">
-                <button type="button" onClick={() => { toggleTheme(); setSettingsOpen(false); }}>
-                  {theme === 'dark' ? 'Light mode' : 'Dark mode'}
-                </button>
-                <button type="button" onClick={() => { toggleHighContrast(); setSettingsOpen(false); }}>
-                  {highContrast ? 'Normal contrast' : 'High contrast'}
-                </button>
-                <button type="button" onClick={() => { toggleLargeText(); setSettingsOpen(false); }}>
-                  {largeText ? 'Normal text' : 'Larger text'}
+                <button type="button" onClick={() => { cycleVisualMode(); setSettingsOpen(false); }}>
+                  {highContrast ? 'Contrast on' : largeText ? 'Large text' : theme === 'dark' ? 'Light mode' : 'Dark mode'}
                 </button>
                 <button type="button" onClick={() => { logout(); setSettingsOpen(false); }}>
                   Sign out
@@ -466,7 +500,6 @@ export default function Chat() {
             socket={socketRef.current}
             aesKey={keys[conversationId(active)] || null}
             messages={messages}
-            typingUsers={typing[conversationId(active)] || []}
             onMessages={setMessages}
             onConversationUpdate={(updated) => {
               const cid = conversationId(updated);
@@ -505,9 +538,38 @@ export default function Chat() {
             }}
           >
             <h2>Your profile</h2>
+            <div className="profile-avatar-wrap">
+              {avatar ? (
+                <img className="avatar-preview" src={avatar} alt="Profile" />
+              ) : (
+                <div className="avatar-preview avatar-placeholder">No photo</div>
+              )}
+            </div>
+            <label className="file-btn profile-photo-btn">
+              {avatar ? 'Change profile photo' : 'Choose profile photo'}
+              <input
+                type="file"
+                accept="image/*"
+                hidden
+                onChange={async (e) => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+                  try {
+                    const dataUrl = await fileToDataUrl(file);
+                    setAvatar(dataUrl);
+                  } catch {
+                    window.alert('Could not read that image.');
+                  }
+                }}
+              />
+            </label>
             <label>
               Username
               <input value={username} onChange={(e) => setUsername(e.target.value)} />
+            </label>
+            <label>
+              About
+              <textarea value={about} maxLength={240} onChange={(e) => setAbout(e.target.value)} placeholder="Tell people about yourself" />
             </label>
             <p className="muted">{user.email}</p>
             <div className="row">

@@ -86,18 +86,36 @@ input {
   padding: 0.6rem 0.8rem;
   min-height: 44px;
 }
-.composer input {
-  min-height: 44px;
-  height: 44px;
+textarea {
+  width: 100%;
+  border: 1px solid var(--line);
+  background: var(--bg);
+  color: var(--text);
+  border-radius: 12px;
   padding: 0.55rem 0.75rem;
+  min-height: 40px;
+  max-height: 120px;
+  resize: none;
+  font-family: inherit;
   font-size: 0.95rem;
   line-height: 1.2;
 }
+.composer { align-items: center; }
+.composer-input {
+  min-height: 40px;
+  height: 40px;
+  padding: 0.45rem 0.75rem;
+  font-size: 0.95rem;
+  line-height: 1.15;
+  overflow-y: auto;
+  flex: 1 1 auto;
+}
 .file-btn, .composer button.primary {
-  min-height: 44px;
+  min-height: 40px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  padding: 0.4rem 0.85rem;
 }
 a { color: var(--accent); }
 .muted { color: var(--muted); }

@@ -8,6 +8,7 @@ export interface User {
   username: string;
   email: string;
   avatar?: string;
+  about?: string;
   role: UserRole;
   publicKey?: string;
   privateKey?: JsonWebKey | Record<string, unknown>;

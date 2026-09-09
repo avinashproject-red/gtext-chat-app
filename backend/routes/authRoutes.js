@@ -2,13 +2,12 @@ const express = require('express');
 const bcrypt = require('bcrypt');
 const User = require('../models/User');
 const { auth, signToken, publicUser } = require('../middleware/auth');
-const { encryptPrivateKey, decryptPrivateKey } = require('../utils/keyStore');
 
 const router = express.Router();
 
 // Register route
 router.post('/register', async (req, res) => {
-  const { username, email, password, publicKey, avatar, privateKey } = req.body;
+  const { username, email, password, publicKey, avatar, protectedKey, about } = req.body;
 
   const cleanUsername = (username || '').trim();
   const cleanEmail = (email || '').toLowerCase().trim();
@@ -36,14 +35,14 @@ router.post('/register', async (req, res) => {
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
-    const encryptedPrivateKey = privateKey ? encryptPrivateKey(privateKey) : '';
     const user = await User.create({
       username: cleanUsername,
       email: cleanEmail,
       password: hashedPassword,
       publicKey: publicKey || '',
-      encryptedPrivateKey,
+      encryptedPrivateKey: protectedKey || '',
       avatar: avatar || '',
+      about: typeof about === 'string' ? about.slice(0, 240) : '',
     });
 
     const token = signToken(user);
@@ -55,7 +54,7 @@ router.post('/register', async (req, res) => {
 
 // Login route
 router.post('/login', async (req, res) => {
-  const { email, password, publicKey, privateKey } = req.body;
+  const { email, password, publicKey, protectedKey } = req.body;
 
   try {
     const user = await User.findOne({ email: (email || '').toLowerCase() });
@@ -68,14 +67,15 @@ router.post('/login', async (req, res) => {
     if (publicKey) {
       user.publicKey = publicKey;
     }
-    if (privateKey && !user.encryptedPrivateKey) {
-      user.encryptedPrivateKey = encryptPrivateKey(privateKey);
+    if (protectedKey) {
+      user.encryptedPrivateKey = protectedKey;
     }
     await user.save();
 
     const token = signToken(user);
     const payload = publicUser(user);
-    res.status(200).json({ token, user: payload });
+    // Explicitly send the encrypted device key down to the client on login for recovery
+    res.status(200).json({ token, user: { ...payload, protectedKey: user.encryptedPrivateKey } });
   } catch (err) {
     res.status(500).json({ message: 'Login failed', error: err.message });
   }
@@ -83,12 +83,13 @@ router.post('/login', async (req, res) => {
 
 // Get current user
 router.get('/me', auth, async (req, res) => {
-  res.json({ user: publicUser(req.user) });
+  const payload = publicUser(req.user);
+  res.json({ user: { ...payload, protectedKey: req.user.encryptedPrivateKey } });
 });
 
 // Update profile
 router.put('/profile', auth, async (req, res) => {
-  const { username, avatar, publicKey, privateKey } = req.body;
+  const { username, avatar, publicKey, protectedKey, about } = req.body;
   try {
     if (username && username !== req.user.username) {
       const taken = await User.findOne({ username });
@@ -96,10 +97,13 @@ router.put('/profile', auth, async (req, res) => {
       req.user.username = username;
     }
     if (typeof avatar === 'string') req.user.avatar = avatar;
+    if (typeof about === 'string') req.user.about = about.slice(0, 240);
     if (typeof publicKey === 'string') req.user.publicKey = publicKey;
-    if (privateKey) req.user.encryptedPrivateKey = encryptPrivateKey(privateKey);
+    if (protectedKey) req.user.encryptedPrivateKey = protectedKey;
     await req.user.save();
-    res.json({ user: publicUser(req.user) });
+    
+    const payload = publicUser(req.user);
+    res.json({ user: { ...payload, protectedKey: req.user.encryptedPrivateKey } });
   } catch (err) {
     res.status(500).json({ message: 'Profile update failed', error: err.message });
   }

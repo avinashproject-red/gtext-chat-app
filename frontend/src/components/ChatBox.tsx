@@ -10,7 +10,6 @@ interface Props {
   socket: Socket | null;
   aesKey: CryptoKey | null;
   messages: ChatMessage[];
-  typingUsers: string[];
   onMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>;
   onConversationUpdate: (conversation: Conversation) => void;
 }
@@ -44,7 +43,6 @@ export default function ChatBox({
   socket,
   aesKey,
   messages,
-  typingUsers,
   onMessages,
   onConversationUpdate,
 }: Props) {
@@ -54,6 +52,7 @@ export default function ChatBox({
   const [memberResults, setMemberResults] = useState<User[]>([]);
   const [error, setError] = useState('');
   const [showMediaGallery, setShowMediaGallery] = useState(false);
+  const [showProfile, setShowProfile] = useState(false);
   const [mediaTab, setMediaTab] = useState<'all' | 'media' | 'docs'>('all');
   const scroller = useRef<HTMLDivElement>(null);
   const isAdmin = conversation.admins.map(String).includes(currentUser.id);
@@ -62,6 +61,11 @@ export default function ChatBox({
     if (conversation.type === 'group') return conversation.name || 'Group';
     const other = conversation.participants.find((p) => p.id !== currentUser.id);
     return other?.username || 'Direct chat';
+  }, [conversation, currentUser.id]);
+
+  const otherParticipant = useMemo(() => {
+    if (conversation.type === 'group') return null;
+    return conversation.participants.find((p) => p.id !== currentUser.id) || null;
   }, [conversation, currentUser.id]);
 
   useEffect(() => {
@@ -161,14 +165,21 @@ export default function ChatBox({
     <section className="chat-box" aria-label={title}>
       <header className="chat-header">
         <div>
-          <h2>{title}</h2>
+          <h2>
+            {conversation.type === 'group' ? (
+              <span>{title}</span>
+            ) : (
+              <button type="button" className="chat-title-button" onClick={() => setShowProfile(true)}>
+                {title}
+              </button>
+            )}
+          </h2>
           <p className="muted">
             {conversation.type === 'group'
               ? `${conversation.participants.length} members`
-              : conversation.participants.find((p) => p.id !== currentUser.id)?.isOnline
+              : otherParticipant?.isOnline
                 ? 'Online'
                 : 'Offline'}
-            {typingUsers.length ? ` · ${typingUsers.join(', ')} typing` : ''}
           </p>
         </div>
         <div className="header-actions">
@@ -178,6 +189,32 @@ export default function ChatBox({
           <button type="button" onClick={reportUser}>Report</button>
         </div>
       </header>
+
+      {showProfile && otherParticipant ? (
+        <div className="modal-backdrop" onClick={() => setShowProfile(false)}>
+          <div className="modal profile-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="brand-row">
+              <h3>Profile</h3>
+              <button type="button" className="icon" onClick={() => setShowProfile(false)} aria-label="Close">
+                ×
+              </button>
+            </div>
+            <div className="profile-avatar-wrap">
+              {otherParticipant.avatar ? (
+                <img className="avatar-preview" src={otherParticipant.avatar} alt={otherParticipant.username} />
+              ) : (
+                <div className="avatar-preview avatar-placeholder">No photo</div>
+              )}
+            </div>
+            <div className="profile-details">
+              <p className="profile-name">{otherParticipant.username}</p>
+              <p className="muted">{otherParticipant.email}</p>
+              {otherParticipant.about ? <p className="muted">About: {otherParticipant.about}</p> : null}
+              <p className="muted">{otherParticipant.isOnline ? 'Online now' : 'Offline'}</p>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {showMediaGallery ? (
         <div className="modal-backdrop" onClick={() => setShowMediaGallery(false)}>
@@ -306,12 +343,13 @@ export default function ChatBox({
 
       <form className="composer" onSubmit={onSubmit}>
         <label className="sr-only" htmlFor="message">Message</label>
-        <input
+        <textarea
           id="message"
+          className="composer-input"
           value={draft}
+          rows={1}
           onChange={(e) => {
             setDraft(e.target.value);
-            socket?.emit(e.target.value ? 'typing:start' : 'typing:stop', { conversationId: conversation.id });
           }}
           placeholder={aesKey ? 'Write an encrypted message' : 'Preparing encryption…'}
           disabled={!aesKey}

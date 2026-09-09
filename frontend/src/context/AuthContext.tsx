@@ -8,7 +8,7 @@ interface AuthContextValue {
   token: string | null;
   loading: boolean;
   login: (email: string, password: string) => Promise<void>;
-  register: (username: string, email: string, password: string, avatar?: string) => Promise<void>;
+  register: (username: string, email: string, password: string, avatar?: string, about?: string) => Promise<void>;
   logout: () => void;
   updateUser: (user: User) => void;
 }
@@ -77,7 +77,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     persist(data.token, { ...data.user, privateKey: privateKeyJwk, publicKey: identity.publicKey, protectedKey });
   }, [persist]);
 
-  const register = useCallback(async (username: string, email: string, password: string, avatar?: string) => {
+  const register = useCallback(async (username: string, email: string, password: string, avatar?: string, about?: string) => {
     const identity = await ensureIdentity(email);
     const privateKeyJwk = await crypto.subtle.exportKey('jwk', identity.privateKey);
     const protectedKey = await wrapDeviceIdentityKey(privateKeyJwk, password, email);
@@ -88,6 +88,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       publicKey: identity.publicKey,
       protectedKey,
       avatar,
+      about,
     });
     persist(data.token, { ...data.user, privateKey: privateKeyJwk, publicKey: identity.publicKey, protectedKey });
   }, [persist]);
