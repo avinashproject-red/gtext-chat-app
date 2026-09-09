@@ -79,6 +79,7 @@ export default function Chat() {
   const [keys, setKeys] = useState<Record<string, CryptoKey>>({});
   const [privateKey, setPrivateKey] = useState<CryptoKey | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [connectionStatus, setConnectionStatus] = useState<'connected' | 'connecting' | 'disconnected'>('connected');
   const socketRef = useRef<Socket | null>(null);
   const activeIdRef = useRef(activeId);
   const keysRef = useRef(keys);
@@ -107,6 +108,22 @@ export default function Chat() {
     const token = localStorage.getItem('gtext:token');
     const socket = io(API_URL, { auth: { token } });
     socketRef.current = socket;
+
+    socket.on('connect', () => {
+      setConnectionStatus('connected');
+      if (activeIdRef.current) {
+        socket.emit('conversation:join', activeIdRef.current);
+      }
+      loadConversations().catch(() => undefined);
+    });
+
+    socket.on('disconnect', () => {
+      setConnectionStatus('disconnected');
+    });
+
+    socket.on('connect_error', () => {
+      setConnectionStatus('connecting');
+    });
 
     socket.on('message:new', async (incoming: ChatMessage) => {
       const cid = String(incoming.conversation);
@@ -204,7 +221,7 @@ export default function Chat() {
       socket.disconnect();
       socketRef.current = null;
     };
-  }, [user]);
+  }, [user, loadConversations]);
 
   const repairDirectConversation = useCallback(async (person: User) => {
     if (!user) return;
@@ -432,6 +449,13 @@ export default function Chat() {
       </aside>
 
       <main className="main-pane">
+        {connectionStatus !== 'connected' ? (
+          <div className={`connection-banner ${connectionStatus}`}>
+            {connectionStatus === 'connecting'
+              ? 'Connecting to server...'
+              : 'Connection lost. Trying to reconnect...'}
+          </div>
+        ) : null}
         <button type="button" className="mobile-toggle" onClick={() => setSidebarOpen(true)}>
           Chats
         </button>

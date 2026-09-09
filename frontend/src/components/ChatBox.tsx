@@ -2,7 +2,7 @@ import React, { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { Socket } from 'socket.io-client';
 import { chatApi, userApi } from '../api/client';
 import { encryptPayload, wrapConversationKey } from '../crypto/e2e';
-import { ChatMessage, Conversation, MessageStatus, User } from '../types';
+import { ChatMessage, Conversation, User } from '../types';
 
 interface Props {
   conversation: Conversation;
@@ -53,6 +53,8 @@ export default function ChatBox({
   const [memberQuery, setMemberQuery] = useState('');
   const [memberResults, setMemberResults] = useState<User[]>([]);
   const [error, setError] = useState('');
+  const [showMediaGallery, setShowMediaGallery] = useState(false);
+  const [mediaTab, setMediaTab] = useState<'all' | 'media' | 'docs'>('all');
   const scroller = useRef<HTMLDivElement>(null);
   const isAdmin = conversation.admins.map(String).includes(currentUser.id);
 
@@ -136,11 +138,24 @@ export default function ChatBox({
     window.alert('Report submitted to admins.');
   };
 
-  const statusLabel = (status: MessageStatus) => {
-    if (status === 'read') return 'Read';
-    if (status === 'delivered') return 'Delivered';
-    return 'Sent';
+  const formatTime = (isoString?: string) => {
+    if (!isoString) return '';
+    try {
+      return new Date(isoString).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    } catch {
+      return '';
+    }
   };
+
+  const mediaMessages = useMemo(() => {
+    return messages.filter((m) => m.plaintext && (m.type === 'image' || m.type === 'video' || m.type === 'document'));
+  }, [messages]);
+
+  const filteredMedia = useMemo(() => {
+    if (mediaTab === 'media') return mediaMessages.filter((m) => m.type === 'image' || m.type === 'video');
+    if (mediaTab === 'docs') return mediaMessages.filter((m) => m.type === 'document');
+    return mediaMessages;
+  }, [mediaMessages, mediaTab]);
 
   return (
     <section className="chat-box" aria-label={title}>
@@ -156,8 +171,68 @@ export default function ChatBox({
             {typingUsers.length ? ` · ${typingUsers.join(', ')} typing` : ''}
           </p>
         </div>
-        <button type="button" onClick={reportUser}>Report</button>
+        <div className="header-actions">
+          <button type="button" onClick={() => setShowMediaGallery(true)}>
+            Media ({mediaMessages.length})
+          </button>
+          <button type="button" onClick={reportUser}>Report</button>
+        </div>
       </header>
+
+      {showMediaGallery ? (
+        <div className="modal-backdrop" onClick={() => setShowMediaGallery(false)}>
+          <div className="modal media-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="brand-row">
+              <h3>Shared Media ({mediaMessages.length})</h3>
+              <button type="button" className="icon" onClick={() => setShowMediaGallery(false)} aria-label="Close">
+                ×
+              </button>
+            </div>
+            <div className="chips">
+              <button
+                type="button"
+                className={`chip ${mediaTab === 'all' ? 'active' : ''}`}
+                onClick={() => setMediaTab('all')}
+              >
+                All ({mediaMessages.length})
+              </button>
+              <button
+                type="button"
+                className={`chip ${mediaTab === 'media' ? 'active' : ''}`}
+                onClick={() => setMediaTab('media')}
+              >
+                Photos & Videos ({mediaMessages.filter((m) => m.type === 'image' || m.type === 'video').length})
+              </button>
+              <button
+                type="button"
+                className={`chip ${mediaTab === 'docs' ? 'active' : ''}`}
+                onClick={() => setMediaTab('docs')}
+              >
+                Documents ({mediaMessages.filter((m) => m.type === 'document').length})
+              </button>
+            </div>
+            <div className="media-grid">
+              {filteredMedia.length === 0 ? (
+                <p className="muted">No shared media found</p>
+              ) : (
+                filteredMedia.map((m) => (
+                  <div key={m.id || m.clientId} className="media-item">
+                    {m.type === 'image' && m.plaintext ? (
+                      <img src={m.plaintext} alt={m.media?.filename || 'Media'} />
+                    ) : m.type === 'video' && m.plaintext ? (
+                      <video src={m.plaintext} controls />
+                    ) : m.type === 'document' && m.plaintext ? (
+                      <a href={m.plaintext} download={m.media?.filename || 'file'}>
+                        📄 {m.media?.filename || 'Download'}
+                      </a>
+                    ) : null}
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {conversation.type === 'group' && isAdmin ? (
         <div className="group-admin">
@@ -212,8 +287,15 @@ export default function ChatBox({
               ) : (
                 <p>{message.plaintext || (aesKey ? 'Decrypting…' : 'Waiting for encryption key')}</p>
               )}
-              {mine && message.type !== 'system' ? (
-                <span className="status">{statusLabel(message.status)}</span>
+              {message.type !== 'system' ? (
+                <span className="bubble-footer">
+                  <span className="time">{formatTime(message.createdAt)}</span>
+                  {mine ? (
+                    <span className={`status-${message.status}`}>
+                      {message.status === 'read' ? '✓✓' : message.status === 'delivered' ? '✓✓' : '✓'}
+                    </span>
+                  ) : null}
+                </span>
               ) : null}
             </article>
           );

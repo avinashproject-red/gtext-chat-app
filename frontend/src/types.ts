@@ -10,7 +10,8 @@ export interface User {
   avatar?: string;
   role: UserRole;
   publicKey?: string;
-  privateKey?: Record<string, unknown>;
+  privateKey?: JsonWebKey | Record<string, unknown>;
+  protectedKey?: string;
   lastSeen?: string;
   isOnline?: boolean;
   isBlocked?: boolean;

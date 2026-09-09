@@ -4,7 +4,10 @@ function encodeUtf8(value: string): Uint8Array {
   }
 
   if (typeof Buffer !== 'undefined') {
-    return new Uint8Array(Buffer.from(value, 'utf8'));
+    const bytes = Buffer.from(value, 'utf8');
+    const copy = new Uint8Array(bytes.length);
+    copy.set(bytes);
+    return copy;
   }
 
   throw new Error('TextEncoder is not available in this environment.');
@@ -141,12 +144,90 @@ export async function unwrapConversationKey(
   return requireWebCrypto().importKey('raw', raw, { name: 'AES-GCM' }, true, ['encrypt', 'decrypt']);
 }
 
+/**
+ * Derives a strong AES-GCM wrapping key iteratively from the user's plaintext password.
+ */
+async function derivePasswordWrappingKey(password: string, saltAsBase64: string): Promise<CryptoKey> {
+  const passwordKey = await requireWebCrypto().importKey(
+    'raw',
+    encodeUtf8(password) as BufferSource,
+    { name: 'PBKDF2' },
+    false,
+    ['deriveKey']
+  );
+  return requireWebCrypto().deriveKey(
+    {
+      name: 'PBKDF2',
+      salt: b64ToBuf(saltAsBase64),
+      iterations: 200000,
+      hash: 'SHA-256',
+    },
+    passwordKey,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    ['encrypt', 'decrypt']
+  );
+}
+
+/**
+ * Derives a safe key derivation salt deterministically from the user's email 
+ * so it's consistent across devices without needing a server trip first.
+ */
+async function getEmailSalt(email: string): Promise<string> {
+  const hash = await requireWebCrypto().digest('SHA-256', encodeUtf8(`gtext_salt_${email.toLowerCase()}`) as BufferSource);
+  return bufToB64(hash);
+}
+
+/**
+ * Encrypts the raw JWK JSON string with a key derived from the user's password.
+ */
+export async function wrapDeviceIdentityKey(privateKeyJwk: JsonWebKey, password: string, email: string): Promise<string> {
+  const salt = await getEmailSalt(email);
+  const wrappingKey = await derivePasswordWrappingKey(password, salt);
+  
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const plaintext = encodeUtf8(JSON.stringify(privateKeyJwk));
+  
+  const ciphertext = await requireWebCrypto().encrypt(
+    { name: 'AES-GCM', iv },
+    wrappingKey,
+    plaintext as BufferSource
+  );
+  
+  // Format: iv:ciphertext (base64)
+  return `${bufToB64(iv)}:${bufToB64(ciphertext)}`;
+}
+
+/**
+ * Decrypts the string payload back to a JWK using the user's password.
+ */
+export async function unwrapDeviceIdentityKey(protectedPayload: string, password: string, email: string): Promise<JsonWebKey | null> {
+  try {
+    const [ivB64, cipherB64] = protectedPayload.split(':');
+    if (!ivB64 || !cipherB64) return null;
+    
+    const salt = await getEmailSalt(email);
+    const wrappingKey = await derivePasswordWrappingKey(password, salt);
+    
+    const plaintext = await requireWebCrypto().decrypt(
+      { name: 'AES-GCM', iv: b64ToBuf(ivB64) },
+      wrappingKey,
+      b64ToBuf(cipherB64)
+    );
+    
+    return JSON.parse(decodeUtf8(plaintext)) as JsonWebKey;
+  } catch (err) {
+    console.error('Failed to unwrap identity key', err);
+    return null;
+  }
+}
+
 export async function encryptPayload(
   aesKey: CryptoKey,
   plaintext: string
 ): Promise<{ ciphertext: string; iv: string }> {
   const iv = crypto.getRandomValues(new Uint8Array(12));
-  const cipher = await requireWebCrypto().encrypt({ name: 'AES-GCM', iv }, aesKey, encodeUtf8(plaintext));
+  const cipher = await requireWebCrypto().encrypt({ name: 'AES-GCM', iv }, aesKey, encodeUtf8(plaintext) as BufferSource);
   return { ciphertext: bufToB64(cipher), iv: bufToB64(iv) };
 }
 

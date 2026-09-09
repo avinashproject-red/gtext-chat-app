@@ -1,6 +1,6 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { authApi } from '../api/client';
-import { ensureIdentity, savePrivateKey } from '../crypto/e2e';
+import { ensureIdentity, savePrivateKey, loadPrivateKey, wrapDeviceIdentityKey, unwrapDeviceIdentityKey } from '../crypto/e2e';
 import { User } from '../types';
 
 interface AuthContextValue {
@@ -28,7 +28,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
       try {
         const me = await authApi.me();
-        setUser(me);
+        const localKey = loadPrivateKey(me.email);
+        setUser(localKey ? { ...me, privateKey: localKey } : me);
       } catch {
         localStorage.removeItem('gtext:token');
         setToken(null);
@@ -41,7 +42,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const persist = useCallback((nextToken: string, nextUser: User) => {
     if (nextUser.privateKey) {
-      savePrivateKey(nextUser.email, nextUser.privateKey as Parameters<typeof savePrivateKey>[1]);
+      savePrivateKey(nextUser.email, nextUser.privateKey as JsonWebKey);
     }
     localStorage.setItem('gtext:token', nextToken);
     setToken(nextToken);
@@ -49,24 +50,46 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const login = useCallback(async (email: string, password: string) => {
+    const data = await authApi.login({ email, password });
+    const localKey = loadPrivateKey(email);
+
+    if (localKey) {
+      persist(data.token, { ...data.user, privateKey: localKey });
+      if (!data.user.protectedKey) {
+        const protectedKey = await wrapDeviceIdentityKey(localKey, password, email);
+        await authApi.updateProfile({ protectedKey });
+      }
+      return;
+    }
+
+    if (data.user.protectedKey) {
+      const recoveredJwk = await unwrapDeviceIdentityKey(data.user.protectedKey, password, email);
+      if (recoveredJwk) {
+        persist(data.token, { ...data.user, privateKey: recoveredJwk });
+        return;
+      }
+    }
+
     const identity = await ensureIdentity(email);
-    const privateKey = await crypto.subtle.exportKey('jwk', identity.privateKey);
-    const data = await authApi.login({ email, password, publicKey: identity.publicKey, privateKey });
-    persist(data.token, data.user);
+    const privateKeyJwk = await crypto.subtle.exportKey('jwk', identity.privateKey);
+    const protectedKey = await wrapDeviceIdentityKey(privateKeyJwk, password, email);
+    await authApi.updateProfile({ publicKey: identity.publicKey, protectedKey });
+    persist(data.token, { ...data.user, privateKey: privateKeyJwk, publicKey: identity.publicKey, protectedKey });
   }, [persist]);
 
   const register = useCallback(async (username: string, email: string, password: string, avatar?: string) => {
     const identity = await ensureIdentity(email);
-    const privateKey = await crypto.subtle.exportKey('jwk', identity.privateKey);
+    const privateKeyJwk = await crypto.subtle.exportKey('jwk', identity.privateKey);
+    const protectedKey = await wrapDeviceIdentityKey(privateKeyJwk, password, email);
     const data = await authApi.register({
       username,
       email,
       password,
       publicKey: identity.publicKey,
-      privateKey,
+      protectedKey,
       avatar,
     });
-    persist(data.token, data.user);
+    persist(data.token, { ...data.user, privateKey: privateKeyJwk, publicKey: identity.publicKey, protectedKey });
   }, [persist]);
 
   const logout = useCallback(() => {

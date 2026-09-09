@@ -40,13 +40,13 @@ export const authApi = {
     email: string;
     password: string;
     publicKey?: string;
-    privateKey?: JsonWebKey | CryptoKey;
+    protectedKey?: string;
     avatar?: string;
   }) => api.post<AuthResponse>('/auth/register', payload).then((r) => r.data),
-  login: (payload: { email: string; password: string; publicKey?: string; privateKey?: JsonWebKey | CryptoKey }) =>
+  login: (payload: { email: string; password: string; publicKey?: string; protectedKey?: string }) =>
     api.post<AuthResponse>('/auth/login', payload).then((r) => r.data),
   me: () => api.get<{ user: User }>('/auth/me').then((r) => r.data.user),
-  updateProfile: (payload: { username?: string; avatar?: string; publicKey?: string; privateKey?: JsonWebKey | CryptoKey }) =>
+  updateProfile: (payload: { username?: string; avatar?: string; publicKey?: string; protectedKey?: string }) =>
     api.put<{ user: User }>('/auth/profile', payload).then((r) => r.data.user),
 };
 
