@@ -45,8 +45,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       savePrivateKey(nextUser.email, nextUser.privateKey as JsonWebKey);
     }
     localStorage.setItem('gtext:token', nextToken);
-    setToken(nextToken);
     setUser(nextUser);
+    setToken(nextToken);
   }, []);
 
   const login = useCallback(async (email: string, password: string) => {

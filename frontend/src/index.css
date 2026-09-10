@@ -204,12 +204,14 @@ a { color: var(--accent); }
 .conversation-list .active, .selected { outline: 2px solid var(--accent); }
 .conversation-list em {
   background: var(--accent);
-  color: #081018;
+  color: var(--bg);
+  padding: 0 0.5rem;
   border-radius: 999px;
-  min-width: 1.4rem;
+  min-width: 1.5rem;
   text-align: center;
-  font-style: normal;
   font-size: 0.8rem;
+  font-style: normal;
+  display: inline-block;
 }
 .sidebar-footer { margin-top: auto; display: grid; gap: 0.45rem; }
 .settings-menu { position: relative; }

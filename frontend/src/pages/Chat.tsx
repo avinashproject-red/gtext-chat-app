@@ -457,6 +457,7 @@ export default function Chat() {
                 }}
               >
                 <span>{label}</span>
+                {console.log('Conversation:', label, 'Unread:', conversation.unreadCount)}
                 {conversation.unreadCount ? <em>{conversation.unreadCount}</em> : null}
               </button>
             );
