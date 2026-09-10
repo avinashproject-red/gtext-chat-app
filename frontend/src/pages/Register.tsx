@@ -1,15 +1,7 @@
 import React, { FormEvent, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-
-function fileToDataUrl(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result));
-    reader.onerror = () => reject(reader.error);
-    reader.readAsDataURL(file);
-  });
-}
+import { compressAvatar } from '../utils/media';
 
 export default function Register() {
   const { register } = useAuth();
@@ -67,7 +59,13 @@ export default function Register() {
               accept="image/*"
               onChange={async (e) => {
                 const file = e.target.files?.[0];
-                if (file) setAvatar(await fileToDataUrl(file));
+                if (file) {
+                  try {
+                    setAvatar(await compressAvatar(file));
+                  } catch {
+                    setError('Could not read that image. Try a smaller photo.');
+                  }
+                }
               }}
             />
           </label>

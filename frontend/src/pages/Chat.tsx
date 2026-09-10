@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { io, Socket } from 'socket.io-client';
 import { API_URL, authApi, chatApi, userApi } from '../api/client';
@@ -13,8 +13,10 @@ import {
   unwrapConversationKey,
   wrapConversationKey,
 } from '../crypto/e2e';
+import { useDebouncedValue } from '../hooks/useDebouncedValue';
 import { notify, useNotificationsEnabled } from '../hooks/useNotifications';
 import { ChatMessage, Conversation, User } from '../types';
+import { compressAvatar } from '../utils/media';
 
 function conversationId(conversation: Conversation): string {
   return conversation.id || conversation._id || '';
@@ -24,14 +26,7 @@ function otherParticipant(conversation: Conversation, userId: string): User | un
   return conversation.participants.find((p) => p.id !== userId);
 }
 
-function fileToDataUrl(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result));
-    reader.onerror = () => reject(reader.error);
-    reader.readAsDataURL(file);
-  });
-}
+const HISTORY_PAGE_SIZE = 40;
 
 function senderId(sender: ChatMessage['sender']): string {
   return typeof sender === 'string' ? sender : sender.id || (sender as { _id?: string })._id || '';
@@ -117,17 +112,24 @@ export default function Chat() {
   const [about, setAbout] = useState(user?.about || '');
   const [keys, setKeys] = useState<Record<string, CryptoKey>>({});
   const [privateKey, setPrivateKey] = useState<CryptoKey | null>(null);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(() =>
+    typeof window === 'undefined' ? true : window.matchMedia('(min-width: 861px)').matches
+  );
   const [connectionStatus, setConnectionStatus] = useState<'connected' | 'connecting' | 'disconnected'>('connected');
   const socketRef = useRef<Socket | null>(null);
   const activeIdRef = useRef(activeId);
   const keysRef = useRef(keys);
   const conversationsRef = useRef(conversations);
+  const loadedOnceRef = useRef(false);
+  const debouncedSearch = useDebouncedValue(search, 280);
   activeIdRef.current = activeId;
   keysRef.current = keys;
   conversationsRef.current = conversations;
 
-  const active = conversations.find((c) => conversationId(c) === activeId) || null;
+  const active = useMemo(
+    () => conversations.find((c) => conversationId(c) === activeId) || null,
+    [conversations, activeId]
+  );
 
   const loadConversations = useCallback(async () => {
     const list = await chatApi.conversations();
@@ -145,7 +147,11 @@ export default function Chat() {
   useEffect(() => {
     if (!user) return;
     const token = localStorage.getItem('gtext:token');
-    const socket = io(API_URL, { auth: { token } });
+    const socket = io(API_URL, {
+      auth: { token },
+      transports: ['websocket', 'polling'],
+      reconnectionDelayMax: 8000,
+    });
     socketRef.current = socket;
 
     socket.on('connect', () => {
@@ -153,7 +159,10 @@ export default function Chat() {
       if (activeIdRef.current) {
         socket.emit('conversation:join', activeIdRef.current);
       }
-      loadConversations().catch(() => undefined);
+      if (!loadedOnceRef.current) {
+        loadedOnceRef.current = true;
+        loadConversations().catch(() => undefined);
+      }
     });
 
     socket.on('conversation:new', (incoming: Conversation) => {
@@ -234,12 +243,20 @@ export default function Chat() {
     });
 
     socket.on('presence:update', ({ userId, isOnline }: { userId: string; isOnline: boolean }) => {
-      setConversations((prev) =>
-        prev.map((c) => ({
-          ...c,
-          participants: c.participants.map((p) => (p.id === userId ? { ...p, isOnline } : p)),
-        }))
-      );
+      setConversations((prev) => {
+        let changed = false;
+        const next = prev.map((c) => {
+          let conversationChanged = false;
+          const participants = c.participants.map((p) => {
+            if (p.id !== userId || p.isOnline === isOnline) return p;
+            conversationChanged = true;
+            changed = true;
+            return { ...p, isOnline };
+          });
+          return conversationChanged ? { ...c, participants } : c;
+        });
+        return changed ? next : prev;
+      });
     });
 
     return () => {
@@ -273,7 +290,7 @@ export default function Chat() {
       if (!current) return;
       const cid = conversationId(current);
       socketRef.current?.emit('conversation:join', cid);
-      const history = await chatApi.messages(cid);
+      const history = await chatApi.messages(cid, { limit: HISTORY_PAGE_SIZE });
       let key: CryptoKey | undefined = keysRef.current[cid];
       const wrapped = current.wrappedKeys?.[user.id];
       if (!key && wrapped) {
@@ -326,6 +343,26 @@ export default function Chat() {
     };
     hydrate().catch(() => undefined);
   }, [activeId, privateKey, repairDirectConversation, user]);
+
+  useEffect(() => {
+    const query = debouncedSearch.trim();
+    if (!query) {
+      setPeople([]);
+      return;
+    }
+    let cancelled = false;
+    userApi
+      .search(query)
+      .then((results) => {
+        if (!cancelled) setPeople(results);
+      })
+      .catch(() => {
+        if (!cancelled) setPeople([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [debouncedSearch]);
 
   const startDirect = async (person: User) => {
     if (!user) return;
@@ -416,10 +453,7 @@ export default function Chat() {
         </div>
         <input
           value={search}
-          onChange={async (e) => {
-            setSearch(e.target.value);
-            setPeople(e.target.value.trim() ? await userApi.search(e.target.value) : []);
-          }}
+          onChange={(e) => setSearch(e.target.value)}
           placeholder="Search people"
           aria-label="Search people"
         />
@@ -457,7 +491,6 @@ export default function Chat() {
                 }}
               >
                 <span>{label}</span>
-                {console.log('Conversation:', label, 'Unread:', conversation.unreadCount)}
                 {conversation.unreadCount ? <em>{conversation.unreadCount}</em> : null}
               </button>
             );
@@ -556,10 +589,9 @@ export default function Chat() {
                   const file = e.target.files?.[0];
                   if (!file) return;
                   try {
-                    const dataUrl = await fileToDataUrl(file);
-                    setAvatar(dataUrl);
+                    setAvatar(await compressAvatar(file));
                   } catch {
-                    window.alert('Could not read that image.');
+                    window.alert('Could not read that image. Try a smaller photo.');
                   }
                 }}
               />

@@ -1,4 +1,4 @@
-import React, { FormEvent, useState } from 'react';
+import React, { FormEvent, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
@@ -9,14 +9,17 @@ export default function Login() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const submitting = useRef(false);
 
   const onSubmit = async (event: FormEvent) => {
     event.preventDefault();
+    if (submitting.current) return;
+    submitting.current = true;
     setError('');
     setBusy(true);
     try {
       await login(email.trim(), password);
-      navigate('/');
+      navigate('/', { replace: true });
     } catch (err: any) {
       const message =
         err?.response?.data?.message ||
@@ -26,6 +29,7 @@ export default function Login() {
           : 'Unable to sign in');
       setError(message);
     } finally {
+      submitting.current = false;
       setBusy(false);
     }
   };
@@ -58,7 +62,7 @@ export default function Login() {
             />
           </label>
           {error ? <p className="error" role="alert">{error}</p> : null}
-          <button className="primary" type="submit" disabled={busy}>
+          <button className="primary" type="submit" disabled={busy} aria-busy={busy}>
             {busy ? 'Signing in…' : 'Sign in'}
           </button>
         </form>

@@ -23,7 +23,7 @@ export const API_URL = getApiUrl();
 
 export const api = axios.create({
   baseURL: `${API_URL}/api`,
-  timeout: 25000,
+  timeout: 18000,
 });
 
 api.interceptors.request.use((config) => {
@@ -68,8 +68,10 @@ export const chatApi = {
     wrappedKeys: Record<string, string>;
     avatar?: string;
   }) => api.post<{ conversation: Conversation }>('/chat/groups', payload).then((r) => r.data.conversation),
-  messages: (conversationId: string) =>
-    api.get<{ messages: ChatMessage[] }>(`/chat/conversations/${conversationId}/messages`).then((r) => r.data.messages),
+  messages: (conversationId: string, params?: { limit?: number; before?: string }) =>
+    api
+      .get<{ messages: ChatMessage[] }>(`/chat/conversations/${conversationId}/messages`, { params })
+      .then((r) => r.data.messages),
   addMember: (conversationId: string, userId: string, wrappedKey?: string) =>
     api
       .post<{ conversation: Conversation }>(`/chat/conversations/${conversationId}/members`, { userId, wrappedKey })

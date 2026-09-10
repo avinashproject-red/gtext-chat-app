@@ -64,13 +64,16 @@ router.post('/login', async (req, res) => {
     const isPasswordValid = await bcrypt.compare(password, user.password);
     if (!isPasswordValid) return res.status(401).json({ message: 'Invalid credentials' });
 
-    if (publicKey) {
+    let dirty = false;
+    if (publicKey && publicKey !== user.publicKey) {
       user.publicKey = publicKey;
+      dirty = true;
     }
-    if (protectedKey) {
+    if (protectedKey && protectedKey !== user.encryptedPrivateKey) {
       user.encryptedPrivateKey = protectedKey;
+      dirty = true;
     }
-    await user.save();
+    if (dirty) await user.save();
 
     const token = signToken(user);
     const payload = publicUser(user);

@@ -31,8 +31,13 @@ function serializeMessage(message) {
 }
 
 async function setPresence(io, userId, isOnline) {
-  await User.findByIdAndUpdate(userId, { isOnline, lastSeen: new Date() });
-  io.emit('presence:update', { userId: String(userId), isOnline, lastSeen: new Date() });
+  const lastSeen = new Date();
+  await User.findByIdAndUpdate(userId, { isOnline, lastSeen });
+  const rooms = await Conversation.find({ participants: userId }).select('_id');
+  const payload = { userId: String(userId), isOnline, lastSeen };
+  rooms.forEach((conversation) => {
+    io.to(conversationRoom(conversation._id)).emit('presence:update', payload);
+  });
 }
 
 function registerChatSocket(io) {

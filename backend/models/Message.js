@@ -52,5 +52,6 @@ const MessageSchema = new mongoose.Schema(
 );
 
 MessageSchema.index({ conversation: 1, createdAt: -1 });
+MessageSchema.index({ conversation: 1, sender: 1, type: 1 });
 
 module.exports = mongoose.model('Message', MessageSchema);

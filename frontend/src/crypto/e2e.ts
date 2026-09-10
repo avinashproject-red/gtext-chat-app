@@ -159,7 +159,7 @@ async function derivePasswordWrappingKey(password: string, saltAsBase64: string)
     {
       name: 'PBKDF2',
       salt: b64ToBuf(saltAsBase64),
-      iterations: 200000,
+      iterations: 100000,
       hash: 'SHA-256',
     },
     passwordKey,

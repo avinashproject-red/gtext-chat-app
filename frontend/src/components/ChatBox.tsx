@@ -2,7 +2,9 @@ import React, { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { Socket } from 'socket.io-client';
 import { chatApi, userApi } from '../api/client';
 import { encryptPayload, wrapConversationKey } from '../crypto/e2e';
+import { useDebouncedValue } from '../hooks/useDebouncedValue';
 import { ChatMessage, Conversation, User } from '../types';
+import { prepareMediaPayload } from '../utils/media';
 
 interface Props {
   conversation: Conversation;
@@ -20,15 +22,6 @@ function senderId(sender: ChatMessage['sender']): string {
 
 function senderName(sender: ChatMessage['sender']): string {
   return typeof sender === 'string' ? 'Member' : sender.username;
-}
-
-function fileToDataUrl(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result));
-    reader.onerror = () => reject(reader.error);
-    reader.readAsDataURL(file);
-  });
 }
 
 function mediaKind(file: File): 'image' | 'video' | 'document' {
@@ -56,6 +49,7 @@ export default function ChatBox({
   const [mediaTab, setMediaTab] = useState<'all' | 'media' | 'docs'>('all');
   const scroller = useRef<HTMLDivElement>(null);
   const isAdmin = conversation.admins.map(String).includes(currentUser.id);
+  const debouncedMemberQuery = useDebouncedValue(memberQuery, 280);
 
   const title = useMemo(() => {
     if (conversation.type === 'group') return conversation.name || 'Group';
@@ -69,8 +63,30 @@ export default function ChatBox({
   }, [conversation, currentUser.id]);
 
   useEffect(() => {
-    scroller.current?.scrollTo({ top: scroller.current.scrollHeight, behavior: 'smooth' });
+    const node = scroller.current;
+    if (!node) return;
+    node.scrollTop = node.scrollHeight;
   }, [messages.length]);
+
+  useEffect(() => {
+    const value = debouncedMemberQuery.trim();
+    if (!value) {
+      setMemberResults([]);
+      return;
+    }
+    let cancelled = false;
+    userApi
+      .search(value)
+      .then((users) => {
+        if (!cancelled) setMemberResults(users);
+      })
+      .catch(() => {
+        if (!cancelled) setMemberResults([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [debouncedMemberQuery]);
 
   const sendEncrypted = async (plaintext: string, type: ChatMessage['type'], media?: ChatMessage['media']) => {
     if (!socket || !aesKey) throw new Error('Encryption is not ready yet');
@@ -107,18 +123,13 @@ export default function ChatBox({
   const onFile = async (file: File) => {
     setBusy(true);
     try {
-      const dataUrl = await fileToDataUrl(file);
-      await sendEncrypted(dataUrl, mediaKind(file), { filename: file.name, size: file.size });
+      const media = await prepareMediaPayload(file);
+      await sendEncrypted(media.dataUrl, mediaKind(file), { filename: media.filename, size: media.size });
     } catch (err) {
       setError((err as Error).message);
     } finally {
       setBusy(false);
     }
-  };
-
-  const searchMembers = async (value: string) => {
-    setMemberQuery(value);
-    setMemberResults(value.trim() ? await userApi.search(value) : []);
   };
 
   const addMember = async (user: User) => {
@@ -255,12 +266,12 @@ export default function ChatBox({
                 filteredMedia.map((m) => (
                   <div key={m.id || m.clientId} className="media-item">
                     {m.type === 'image' && m.plaintext ? (
-                      <img src={m.plaintext} alt={m.media?.filename || 'Media'} />
+                      <img src={m.plaintext} alt={m.media?.filename || 'Media'} loading="lazy" decoding="async" />
                     ) : m.type === 'video' && m.plaintext ? (
-                      <video src={m.plaintext} controls />
+                      <video src={m.plaintext} controls preload="metadata" />
                     ) : m.type === 'document' && m.plaintext ? (
                       <a href={m.plaintext} download={m.media?.filename || 'file'}>
-                        📄 {m.media?.filename || 'Download'}
+                        {m.media?.filename || 'Download'}
                       </a>
                     ) : null}
                   </div>
@@ -275,7 +286,7 @@ export default function ChatBox({
         <div className="group-admin">
           <input
             value={memberQuery}
-            onChange={(e) => searchMembers(e.target.value)}
+            onChange={(e) => setMemberQuery(e.target.value)}
             placeholder="Add a member"
             aria-label="Add a group member"
           />
@@ -314,9 +325,9 @@ export default function ChatBox({
               {message.type === 'system' ? (
                 <p className="muted">{message.plaintext || message.ciphertext}</p>
               ) : message.type === 'image' && message.plaintext ? (
-                <img src={message.plaintext} alt={message.media?.filename || 'Shared image'} />
+                <img src={message.plaintext} alt={message.media?.filename || 'Shared image'} loading="lazy" decoding="async" />
               ) : message.type === 'video' && message.plaintext ? (
-                <video src={message.plaintext} controls />
+                <video src={message.plaintext} controls preload="metadata" />
               ) : message.type === 'document' && message.plaintext ? (
                 <a href={message.plaintext} download={message.media?.filename || 'file'}>
                   {message.media?.filename || 'Download file'}

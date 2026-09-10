@@ -29,18 +29,24 @@ function serializeConversation(conversation, currentUserId) {
 }
 
 async function withUnread(conversations, userId) {
-  return Promise.all(
-    conversations.map(async (conversation) => {
-      const unreadCount = await Message.countDocuments({
-        conversation: conversation._id,
+  if (!conversations.length) return conversations;
+  const ids = conversations.map((conversation) => conversation._id);
+  const counts = await Message.aggregate([
+    {
+      $match: {
+        conversation: { $in: ids },
         sender: { $ne: userId },
-        'readBy.user': { $ne: userId },
         type: { $ne: 'system' },
-      });
-      conversation.unreadCount = unreadCount;
-      return conversation;
-    })
-  );
+        'readBy.user': { $ne: userId },
+      },
+    },
+    { $group: { _id: '$conversation', count: { $sum: 1 } } },
+  ]);
+  const byId = new Map(counts.map((row) => [String(row._id), row.count]));
+  conversations.forEach((conversation) => {
+    conversation.unreadCount = byId.get(String(conversation._id)) || 0;
+  });
+  return conversations;
 }
 
 router.get('/conversations', auth, async (req, res) => {

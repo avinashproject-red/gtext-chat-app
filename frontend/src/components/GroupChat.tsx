@@ -1,6 +1,7 @@
-import React, { FormEvent, useMemo, useState } from 'react';
+import React, { FormEvent, useEffect, useMemo, useState } from 'react';
 import { chatApi, userApi } from '../api/client';
 import { generateConversationKey, wrapConversationKey } from '../crypto/e2e';
+import { useDebouncedValue } from '../hooks/useDebouncedValue';
 import { Conversation, User } from '../types';
 
 interface Props {
@@ -18,15 +19,27 @@ export default function GroupChat({ currentUser, onCreated, onClose }: Props) {
   const [busy, setBusy] = useState(false);
 
   const selectedIds = useMemo(() => new Set(selected.map((u) => u.id)), [selected]);
+  const debouncedQuery = useDebouncedValue(query, 280);
 
-  const search = async (value: string) => {
-    setQuery(value);
-    if (!value.trim()) {
+  useEffect(() => {
+    const value = debouncedQuery.trim();
+    if (!value) {
       setResults([]);
       return;
     }
-    setResults(await userApi.search(value));
-  };
+    let cancelled = false;
+    userApi
+      .search(value)
+      .then((users) => {
+        if (!cancelled) setResults(users);
+      })
+      .catch(() => {
+        if (!cancelled) setResults([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [debouncedQuery]);
 
   const toggle = (user: User) => {
     setSelected((prev) =>
@@ -75,7 +88,7 @@ export default function GroupChat({ currentUser, onCreated, onClose }: Props) {
         </label>
         <label>
           Add people
-          <input value={query} onChange={(e) => search(e.target.value)} placeholder="Search username or email" />
+          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search username or email" />
         </label>
         <ul className="picker-list">
           {results.map((user) => (

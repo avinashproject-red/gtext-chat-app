@@ -53,7 +53,7 @@ app.use(
     credentials: true,
   })
 );
-app.use(express.json({ limit: '12mb' }));
+app.use(express.json({ limit: '4mb' }));
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 app.get('/api/health', (_req, res) => {
